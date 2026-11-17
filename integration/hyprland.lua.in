@@ -1,0 +1,79 @@
+-- Compact Spotlight-style search. The page reports its natural height in its title.
+local window_class = "brave-127.0.0.1__spotlight-ai-Default"
+local window_pattern = "^brave-127[.]0[.]0[.]1__spotlight-ai-Default$"
+local workspace = "spotlight-ai-search"
+
+o.window(window_pattern, {
+  tag = "-chromium-based-browser",
+  float = true,
+  center = true,
+  size = { 680, 108 },
+  rounding = 18,
+  border_size = 0,
+  workspace = "special:" .. workspace,
+})
+-- Translucency is limited to the local search panel; Google answers remain opaque.
+o.window({ class = window_pattern, title = "^Quick AI Search.*$" }, {
+  opacity = "0.88 override 0.84 override",
+  no_blur = false,
+  no_shadow = false,
+})
+
+local placed = {}
+local function fit_popup(window)
+  if not window or window.class ~= window_class then return end
+  local address = window.address
+  if not address then return end
+  local monitor = window.monitor
+  if not monitor or not monitor.width then return end
+  local scale = monitor.scale or 1
+  local screen_w = math.floor(monitor.width / scale)
+  local screen_h = math.floor(monitor.height / scale)
+  if (monitor.transform or 0) % 2 == 1 then screen_w, screen_h = screen_h, screen_w end
+  local title = window.title or ""
+  local search = title:match("^Quick AI Search") ~= nil
+  local width = math.min(search and 680 or 940, screen_w - 64)
+  local requested = tonumber(title:match("^Quick AI Search %[(%d+)%]$")) or 108
+  local height = search and math.max(104, math.min(380, requested)) or math.min(600, screen_h - 80)
+  local signature = tostring(width) .. ":" .. tostring(height) .. ":" .. tostring(search)
+  if placed[address] == signature then return end
+  placed[address] = signature
+  hl.dispatch(hl.dsp.window.resize({ x = width, y = height, relative = false, window = window }))
+  if search then
+    hl.dispatch(hl.dsp.window.move({
+      x = (monitor.x or 0) + math.floor((screen_w - width) / 2),
+      y = (monitor.y or 0) + math.max(56, math.floor(screen_h * 0.24)),
+      relative = false, window = window,
+    }))
+  else
+    hl.dispatch(hl.dsp.window.center({ window = window }))
+  end
+end
+-- Clear cached sizing while the new popup is live. A destroyed Window object
+-- may no longer expose its address, so no destroy callback touches that object.
+hl.on("window.open", function(window)
+  if window and window.class == window_class then
+    placed = {}
+    fit_popup(window)
+  end
+end)
+hl.on("window.title", fit_popup)
+hl.on("config.reloaded", function()
+  for _, window in ipairs(hl.get_windows()) do fit_popup(window) end
+end)
+
+o.rebind("ALT + SPACE", "Toggle Google AI search", function()
+  local exists = false
+  for _, window in ipairs(hl.get_windows()) do
+    if window.class == window_class then exists = true; break end
+  end
+  if exists then
+    hl.dispatch(hl.dsp.workspace.toggle_special(workspace))
+  else
+    hl.exec_cmd(@LAUNCH_COMMAND@)
+  end
+end)
+
+-- Replaces Omarchy's Apps menu on SUPER+ALT+SPACE.
+o.rebind("SUPER + ALT + SPACE", "Fresh Google AI search",
+  @FRESH_COMMAND@)
